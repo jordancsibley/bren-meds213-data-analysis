@@ -3,14 +3,12 @@ title: "Data Analaysis with the Arctic shorebird csv files"
 format: html
 ---
 
-
 ```{r, message=FALSE}
 library(tidyverse)
 library(here)
 library(lubridate)
 library(RColorBrewer)
 ```
-
 
 ## Define path and filenames
 
@@ -30,7 +28,6 @@ species_csv <- "species.csv"
 lemmings_csv <- "ASDN_Daily_pred_lemm.csv"
 ```
 
-
 ## Question 1: Which shorebird species makes the most eggs?
 
 ### Import the data
@@ -40,49 +37,60 @@ sites_data <- read_csv(here(path_raw, sites_csv))
 
 eggs_data <- read_csv(here(path_raw, eggs_csv))
 
+nest_data <- read_csv(here(path_raw, nests_csv))
+
 species_data <- read_csv(here(path_raw, species_csv))
 ```
-
 
 Let's compute the number of eggs per nest. The column `Egg-num` seems to be a good candidate to estimate the number of eggs per nest:
 
 ```{r}
 eggs_sum <- eggs_data %>%
+  group_by(Site, Year, Nest_ID) |> 
+  summarise(Egg_count = max(Egg_num)) |> # decided to use max num of eggs, but could have counted the number of rows as well  
+  ungroup()
   
 ```
 
 Then we can join with the nest table to bring the species information:
 
 ```{r}
-nest_species <- eggs_sum %>%
+nest_egg_sum <- eggs_sum %>%
+  left_join(nest_data, join_by(Year, Site, Nest_ID))
   
 ```
 
 Now we can group by species:
 
 ```{r}
-nest_species_avg <- nest_species %>%
+nest_species_avg <- nest_egg_sum %>%
+  group_by(Species) |> 
+  summarise(Avg_egg_count = mean(Egg_count)) |> 
+  ungroup()
+
+nest_species_avg |> arrange(desc(Avg_egg_count))
   
 ```
 
 Finally it would be better to have the name of the species and not only the 4-letter acronym:
 
 ```{r}
-nest_species_avg <- nest_species_avg %>%
+nest_species_avg <- nest_species_avg |> 
+  left_join(species_data, join_by(Species == Code))  # Diff names, same values   select
+  
+nest_species_avg |> 
+  select(-c(Common_name, Relevance))
   
 ```
 
 Let's put it all together:
 
 ```{r}
-nest_species_avg %>% 
-  select(-Relevance) %>%
-  relocate(avg_egg_numb, .after = last_col()) %>%
-  arrange(desc(avg_egg_numb))
+# nest_species_avg %>% 
+#   select(-Relevance) %>%
+#   relocate(avg_egg_numb, .after = last_col()) %>%
+#   arrange(desc(avg_egg_numb))
 ```
-
-
-
 
 ## Question 2: Does the snow amount & timing impact the number of eggs? Is it species dependant?
 
@@ -102,6 +110,7 @@ Yeah! `Date_found` is already in date format! We can thus directly aggregate the
 
 ```{r}
 nests_month <- nests_data %>%
+  mutate(Month = month(Date_found))
   
 ```
 
@@ -119,22 +128,22 @@ The Date is stored as a character :/, we thus first we need to transform the dat
 
 ```{r}
 snowcover_data_fixed <- snowcover_data %>%
-  
+  mutate(Date2 = as_date(Date))
 ```
 
 We have 72 errors. Let's have a look at the date which failed:
 
 ```{r}
 snowcover_data_fixed %>% 
+  filter(is.na(Date2))
 
 ```
-
 
 It is because 2 days were entered as one value `8&9 june 06`, it is not in the expected format
 
 ```{r}
-snowcover_data_fixed <- snowcover_data_fixed %>%
-  
+snowcover_data_fixed2 <- snowcover_data_fixed %>%
+  mutate(Date2 = ifelse(Date == "8&9 june 06", as_date(8-June-06), as_date(Date)))
 ```
 
 Mmm the Dates are not what we were expecting... It generally means there are different date types. Let's start by fixing the problematic dates before transforming it to the date format.
@@ -144,12 +153,11 @@ snowcover_data_fixed <-
   
 ```
 
-
-::: {.callout-note}
+::: callout-note
 ## Fun fact
+
 You might be wondering why I started with `as_date()` instead of directly using `dmy()`. Well turns out that while preparing this exercise I discovered a bug in this `lubridate` function!! See <https://github.com/tidyverse/lubridate/issues/1161> for more information.
 :::
-
 
 Now let's compute the monthly statistics
 
@@ -159,7 +167,6 @@ snowcover_month <- snowcover_data_fixed %>%
   
 ```
 
- 
 ### Join the snow cover and nest tables
 
 Since now we have the months in common, we can use them to join our two datasets:
@@ -193,6 +200,4 @@ ggplot(nests_snow_year, aes(x=avg_snow_cover, y=n_nest , color=Species)) +
   # facet_wrap(vars(Year), scales = "free")
 ```
 
-What do you think is the answer to our question? 
-
-
+What do you think is the answer to our question?
